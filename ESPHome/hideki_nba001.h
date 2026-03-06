@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <map>
 #include <vector>
 #include <string>
 
@@ -275,7 +276,11 @@ static NexaPacket nba_decode_from_bits(const std::vector<uint8_t> &bits)
  */
 static NexaPacket nba001_decode(const std::vector<int32_t> &raw)
 {
-    std::vector<uint8_t> bits;
+    // Static buffer: avoids a heap alloc/free on every on_raw callback
+    // (which fires for all 433 MHz RF noise, not just Nexa packets).
+    // Safe because ESPHome runs single-threaded in the main loop.
+    static std::vector<uint8_t> bits;
+    bits.clear();
     bits.reserve(300);
     nba_dmc_to_bits(raw, bits);
     return nba_decode_from_bits(bits);

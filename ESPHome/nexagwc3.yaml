@@ -36,6 +36,11 @@ esphome:
     priority: -100   # run after all components are initialised
     then:
       - cc1101.begin_rx: cc1101_radio
+      - lambda: |-
+          // Publish an empty JSON object so HA shows the sensors as
+          // "available" immediately after boot, before any RF packet arrives.
+          id(nexa_rx).publish_state("{}");
+          id(nexa_fire_rx).publish_state("{}");
 
 esp32:
   board: esp32-c3-devkitm-1
@@ -46,6 +51,12 @@ logger:
   level: INFO
 
 api:
+  # Disable the default 15-minute "reboot if no HA client connected" timer.
+  # Without this, any API glitch (e.g. safe_mode NVS write) that breaks the
+  # connection will cause the device to reboot exactly 15 minutes after boot.
+  # A gateway like this should never reboot just because HA is temporarily
+  # unavailable or slow to reconnect.
+  reboot_timeout: 0s
   encryption:
     key: "wK4o6AKpQYfaxJ16s49a5e/Sf9mzy2dcIKnWu9D1dJU="
 
@@ -56,7 +67,10 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  post_connect_roaming: false
+  # post_connect_roaming: false # default true, but can cause long WiFi blackouts on some APs when the signal is weak
+  # Disable modem sleep: prevents ~100 ms WiFi blackouts that can drop the
+  # API TCP keepalive. Costs ~20 mA extra but this is a mains-powered gateway.
+  power_save_mode: none
   ap:
     ssid: "NexaGwC3 Fallback"
     password: "nexagwfallback"
@@ -278,15 +292,42 @@ remote_receiver:
 
   on_raw:
     - lambda: |-
+        // ─── Change-detection + 5-minute heartbeat ─────────────────────────
+        // Publish on first reading (boot), when a value changes, or every
+        // 5 minutes regardless of change (keep-alive / HA watchdog).
+        static std::map<uint16_t, std::string>  nba_last_json;
+        static std::map<uint16_t, uint32_t>     nba_last_ms;
+        static std::map<uint32_t, std::string>  fs_last_json;
+        static std::map<uint32_t, uint32_t>     fs_last_ms;
+        static const uint32_t HEARTBEAT_MS = 5UL * 60UL * 1000UL;  // 5 minutes
+
         // ── Try NBA-001 temperature/humidity first ─────────────────────────
         auto pkt = nba001_decode(x);
         if (pkt.valid) {
-            id(nexa_rx).publish_state(nba001_to_json(pkt).c_str());
+            std::string json = nba001_to_json(pkt);
+            uint16_t    sid  = pkt.sensor_id;
+            bool first_time  = (nba_last_ms.count(sid) == 0);
+            bool changed     = !first_time && (json != nba_last_json[sid]);
+            bool timeout     = !first_time && (millis() - nba_last_ms[sid] >= HEARTBEAT_MS);
+            if (first_time || changed || timeout) {
+                id(nexa_rx).publish_state(json.c_str());
+                nba_last_json[sid] = json;
+                nba_last_ms[sid]   = millis();
+            }
             return;
         }
         // ── Try FS-558 smoke alarm ──────────────────────────────────────
         auto fpkt = fs558_decode(x);
         if (fpkt.valid) {
-            id(nexa_fire_rx).publish_state(fs558_to_json(fpkt).c_str());
+            std::string json = fs558_to_json(fpkt);
+            uint32_t    dev  = fpkt.device;
+            bool first_time  = (fs_last_ms.count(dev) == 0);
+            bool changed     = !first_time && (json != fs_last_json[dev]);
+            bool timeout     = !first_time && (millis() - fs_last_ms[dev] >= HEARTBEAT_MS);
+            if (first_time || changed || timeout) {
+                id(nexa_fire_rx).publish_state(json.c_str());
+                fs_last_json[dev] = json;
+                fs_last_ms[dev]   = millis();
+            }
         }
 
