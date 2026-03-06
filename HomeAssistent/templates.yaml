@@ -8,7 +8,7 @@
       state_class: measurement
       state: >
         {% set d = trigger.to_state.state | from_json %}
-        {% if d.id == '0x2A0E' %} {{ d.t }}
+        {% if d.id == '0x200E' %} {{ d.t }}
         {% else %}               {{ this.state }}
         {% endif %}
     - name: "Nexa Sensor 1 Humidity"
@@ -17,7 +17,7 @@
       state_class: measurement
       state: >
         {% set d = trigger.to_state.state | from_json %}
-        {% if d.id == '0x2A0E' %} {{ d.h }}
+        {% if d.id == '0x200E' %} {{ d.h }}
         {% else %}               {{ this.state }}
         {% endif %}
     - name: "Nexa Sensor 2 Temperature"
@@ -73,4 +73,40 @@
         {% set d = trigger.to_state.state | from_json %}
         {% if d.id == '0x3A0E' %} {{ d.h }}
         {% else %}               {{ this.state }}
+        {% endif %}
+- trigger:
+    - platform: state
+      entity_id: sensor.nexagwc3_nexa_fire_rx
+  binary_sensor:
+    - name: "Nexa Brandvarnare 1"
+      device_class: smoke
+      icon: mdi:smoke-detector-alert
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x680005' %} {{ not d.state }}
+        {% else %}                 {{ this.state }}
+        {% endif %}
+    - name: "Nexa Brandvarnare 2"
+      device_class: smoke
+      icon: mdi:smoke-detector-alert
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x280005' %} {{ not d.state }}
+        {% else %}                  {{ this.state }}
+        {% endif %}
+    - name: "Nexa Brandvarnare 3"
+      device_class: smoke
+      icon: mdi:smoke-detector-alert
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x100005' %} {{ not d.state }}
+        {% else %}                  {{ this.state }}
+        {% endif %}
+    - name: "Nexa Brandvarnare 4"
+      device_class: smoke
+      icon: mdi:smoke-detector-alert
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x080005' %} {{ not d.state }}
+        {% else %}                  {{ this.state }}
         {% endif %}

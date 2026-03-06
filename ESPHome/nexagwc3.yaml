@@ -103,6 +103,25 @@ text_sensor:
     id: nexa_rx
     icon: mdi:radio-tower
 
+  # Every received FS-558 alarm packet is published here as JSON.
+  # Fields:
+  #   id    – 6-digit uppercase hex device address, e.g. "0x680005"
+  #           (bits[23:1] of the 24-bit packet; unique per alarm unit)
+  #   state – bit[0] of the packet
+  #           CONFIRMED polarity (test-button verified):
+  #             state=false → alarm ACTIVE / sounding
+  #             state=true  → alarm cleared / idle
+  #
+  # Examples:
+  #   {"id":"0x680005","state":false}   ← alarm active  (confirmed)
+  #   {"id":"0x680005","state":true}    ← alarm cleared (inferred)
+  #
+  # Home Assistant trigger-based template binary sensors read this.
+  - platform: template
+    name: "Nexa Fire RX"
+    id: nexa_fire_rx
+    icon: mdi:smoke-detector-alert
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Text sensors – JSON payloads published to Home Assistant
 #
@@ -189,6 +208,53 @@ text_sensor:
 #             {% else %}               {{ this.state }}
 #             {% endif %}
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# ── FS-558 smoke alarm mapping ───────────────────────────────────────────────
+# The FS-558 uses a custom 24-bit OOK protocol – NOT ESPHome’s Nexa decoder.
+# Add one block per alarm. Replace 0x680005 / 0x7ABCDE with your real IDs
+# (visible in the ESPHome log or as the "id" field in HA state changes).
+#
+# State polarity CONFIRMED: state=false → alarm active, state=true → idle.
+# Use  {{ not d.state }}  so that HA binary_sensor is true when alarming.
+#
+#   template:
+#     - trigger:
+#         - platform: state
+#           entity_id: sensor.nexagwc3_nexa_fire_rx
+#       binary_sensor:
+#         - name: "Nexa Brandvarnare 1"
+#           device_class: smoke
+#           icon: mdi:smoke-detector-alert
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x680005' %} {{ not d.state }}
+#             {% else %}                 {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Brandvarnare 2"
+#           device_class: smoke
+#           icon: mdi:smoke-detector-alert
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x280005' %} {{ not d.state }}
+#             {% else %}                  {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Brandvarnare 3"
+#           device_class: smoke
+#           icon: mdi:smoke-detector-alert
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x100005' %} {{ not d.state }}
+#             {% else %}                  {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Brandvarnare 4"
+#           device_class: smoke
+#           icon: mdi:smoke-detector-alert
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x080005' %} {{ not d.state }}
+#             {% else %}                  {{ this.state }}
+#             {% endif %}
+# ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Remote receiver – reads demodulated OOK from CC1101 GDO2 (GPIO4)
@@ -206,11 +272,21 @@ remote_receiver:
   filter: 100us
   idle:   5ms
   buffer_size: 10kb
+  # ── Diagnostics: restore  dump: [raw]  to capture new alarm IDs, then
+  #    change back to []  once all IDs are known. ──────────────────────
   dump: []
 
   on_raw:
     - lambda: |-
+        // ── Try NBA-001 temperature/humidity first ─────────────────────────
         auto pkt = nba001_decode(x);
-        if (!pkt.valid) return;
-        id(nexa_rx).publish_state(nba001_to_json(pkt).c_str());
+        if (pkt.valid) {
+            id(nexa_rx).publish_state(nba001_to_json(pkt).c_str());
+            return;
+        }
+        // ── Try FS-558 smoke alarm ──────────────────────────────────────
+        auto fpkt = fs558_decode(x);
+        if (fpkt.valid) {
+            id(nexa_fire_rx).publish_state(fs558_to_json(fpkt).c_str());
+        }
 

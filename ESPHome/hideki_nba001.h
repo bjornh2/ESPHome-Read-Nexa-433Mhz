@@ -298,3 +298,94 @@ static std::string nba001_to_json(const NexaPacket &pkt)
              pkt.battery_ok ? "true" : "false");
     return std::string(buf);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nexa FS-558 RF smoke alarm decoder
+//
+// RF parameters
+//   Frequency  : 433.92 MHz
+//   Modulation : OOK
+//   Encoding   : simple pulse-width, one pulse+gap pair per bit
+//     Long pulse  (≈1190 µs) + Short gap (≈490 µs)  = bit "1"
+//     Short pulse (≈ 430 µs) + Long  gap (≈1270 µs)  = bit "0"
+//
+// Packet structure (24 data bits + end marker)
+//   bits[23:1]  23-bit device address, unique per unit, never changes
+//   bit[0]      state bit (0 = observed when test-button pressed;
+//               verify against real alarm to confirm polarity)
+//   End marker  2 × (short pulse + short gap) + trailing pulse
+//
+// NOTE: The FS-558 does NOT use ESPHome’s built-in Nexa decoder.
+//       Its timing (T≈430 µs) differs from the Nexa decoder’s expected
+//       sync gap (>2000 µs), so on_nexa will never fire for this device.
+//       Use on_raw + fs558_decode() instead.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct Fs558Packet {
+    bool     valid    = false;
+    uint32_t device   = 0;     // 23-bit device address (bits[23:1])
+    bool     state    = false; // bit[0] of the packet
+};
+
+/**
+ * Decode one Nexa FS-558 packet from ESPHome remote_receiver raw pulse data.
+ *
+ * The packet-size check (49–70 values) prevents NBA-001 packets (~130+
+ * values) from being fed into this decoder.
+ */
+static Fs558Packet fs558_decode(const std::vector<int32_t> &raw)
+{
+    Fs558Packet result;
+
+    // FS-558 packets: 24 data pairs + 2 end-marker pairs + 1 trailing pulse
+    // = 49–53 values.  NBA-001 packets are 130+ values—skip them.
+    if (raw.size() < 49 || raw.size() > 70) return result;
+
+    const int32_t SHORT_US = 430;
+    const int32_t LONG_US  = 1190;
+    const int32_t TOL      = 180;
+
+    auto is_short = [&](int32_t v) -> bool {
+        return (v >= SHORT_US - TOL && v <= SHORT_US + TOL);
+    };
+    auto is_long = [&](int32_t v) -> bool {
+        return (v >= LONG_US - TOL && v <= LONG_US + TOL);
+    };
+
+    uint32_t bits = 0;
+    for (int i = 0; i < 24; i++) {
+        int32_t pulse = raw[i * 2];
+        int32_t gap   = raw[i * 2 + 1] < 0 ? -raw[i * 2 + 1] : raw[i * 2 + 1];
+
+        if (is_long(pulse) && is_short(gap)) {
+            bits = (bits << 1) | 1u;
+        } else if (is_short(pulse) && is_long(gap)) {
+            bits = (bits << 1) | 0u;
+        } else {
+            return result;   // symbol out of tolerance → not FS-558
+        }
+    }
+
+    // Verify end marker: pair at index 24 (values 48,49) must be short+short
+    if ((int)raw.size() < 50) return result;
+    int32_t em_pulse = raw[48];
+    int32_t em_gap   = raw[49] < 0 ? -raw[49] : raw[49];
+    if (!is_short(em_pulse) || !is_short(em_gap)) return result;
+
+    result.valid  = true;
+    result.device = bits >> 1;          // upper 23 bits = device address
+    result.state  = (bits & 1u) != 0;  // bit[0] = state
+    return result;
+}
+
+/**
+ * Build a compact JSON string for a decoded FS-558 packet.
+ * e.g.  {"id":"0x680005","state":false}
+ */
+static std::string fs558_to_json(const Fs558Packet &pkt)
+{
+    char buf[48];
+    snprintf(buf, sizeof(buf), "{\"id\":\"0x%06X\",\"state\":%s}",
+             (unsigned)pkt.device, pkt.state ? "true" : "false");
+    return std::string(buf);
+}
