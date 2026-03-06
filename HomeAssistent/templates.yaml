@@ -1,0 +1,76 @@
+- trigger:
+    - platform: state
+      entity_id: sensor.nexagwc3_nexa_rx
+  sensor:
+    - name: "Nexa Sensor 1 Temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x2A0E' %} {{ d.t }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 1 Humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x2A0E' %} {{ d.h }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 2 Temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x220E' %} {{ d.t }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 2 Humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x220E' %} {{ d.h }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 3 Temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x280E' %} {{ d.t }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 3 Humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x280E' %} {{ d.h }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 4 Temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x3A0E' %} {{ d.t }}
+        {% else %}               {{ this.state }}
+        {% endif %}
+    - name: "Nexa Sensor 4 Humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      state: >
+        {% set d = trigger.to_state.state | from_json %}
+        {% if d.id == '0x3A0E' %} {{ d.h }}
+        {% else %}               {{ this.state }}
+        {% endif %}

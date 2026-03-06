@@ -1,0 +1,8 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+...
+
+template: !include templates.yaml
+
+...

@@ -1,0 +1,216 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ESPHome configuration for ESP32-C3 + CC1101 → Nexa NBA-001 gateway
+#
+# The NBA-001 is internally a Hideki TS04 / TFA TS34C chip. It broadcasts
+# temperature and humidity at 433.92 MHz using OOK with Differential
+# Manchester Coding (DMC). See hideki_nba001.h for full protocol details.
+#
+# Each received packet is published to the "nexa_rx" text sensor as JSON:
+#   {"id":"0x2A0E","ch":2,"rc":10,"t":23.3,"h":25,"batt":true}
+#
+# Sensor ID mapping is done entirely in Home Assistant (no reflash needed).
+# See readme.md for HA trigger-based template sensor examples.
+#
+# ── CC1101 wiring to ESP32-C3 (e.g. "C3 Supermini") ─────────────────────────
+#   CC1101 pin   ESP32-C3 pin
+#   VCC          3.3 V
+#   GND          GND
+#   MOSI (SI)    GPIO4
+#   MISO (SO)    GPIO3
+#   SCK  (SCLK)  GPIO5
+#   CSN  (CS)    GPIO7
+#   GDO0         GPIO6   ← demodulated OOK data, feeds remote_receiver
+#   GDO2         not connected (not required by the built-in component)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# (no substitutions needed – sensor mapping is done in Home Assistant)
+
+# ─────────────────────────────────────────────────────────────────────────────
+esphome:
+  name: nexagwc3
+  friendly_name: NexaGwC3
+  # Include the Hideki/NBA-001 decoder (header-only, no extra build step)
+  includes:
+    - hideki_nba001.h
+  on_boot:
+    priority: -100   # run after all components are initialised
+    then:
+      - cc1101.begin_rx: cc1101_radio
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: "wK4o6AKpQYfaxJ16s49a5e/Sf9mzy2dcIKnWu9D1dJU="
+
+ota:
+  - platform: esphome
+    password: "89d0adc84635d78036eedea1ff47ed77"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  post_connect_roaming: false
+  ap:
+    ssid: "NexaGwC3 Fallback"
+    password: "nexagwfallback"
+
+captive_portal:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPI bus – C3 Supermini pin assignment
+# ─────────────────────────────────────────────────────────────────────────────
+spi:
+  clk_pin:  GPIO5
+  mosi_pin: GPIO4
+  miso_pin: GPIO3
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CC1101 radio – built-in ESPHome component (merged via PR #11849)
+#   frequency      : 433.92 MHz
+#   filter_bandwidth: 203 kHz  (closest supported value ≥ 200 kHz)
+#   modulation_type: ASK/OOK
+#   GDO0           : GPIO6  (demodulated OOK data, shared with remote_receiver)
+# ─────────────────────────────────────────────────────────────────────────────
+cc1101:
+  id: cc1101_radio
+  cs_pin: GPIO7
+  gdo0_pin:
+    number: GPIO6
+    allow_other_uses: true  # shared with remote_receiver
+  frequency: 433.92MHz
+  filter_bandwidth: 203kHz
+  modulation_type: ASK/OOK
+  sync_mode: None
+  carrier_sense_above_threshold: false
+
+sensor: []
+
+binary_sensor: []
+
+
+text_sensor:
+  # Every received packet is published here as JSON.
+  # Home Assistant trigger-based template sensors read this and split by "id".
+  - platform: template
+    name: "Nexa RX"
+    id: nexa_rx
+    icon: mdi:radio-tower
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Text sensors – JSON payloads published to Home Assistant
+#
+# Each payload contains all sensor fields in one JSON object:
+#   {"id":"0x340E","ch":1,"rc":4,"t":23.1,"h":55,"batt":true}
+#
+# HA trigger-based template sensors (configuration.yaml or templates.yaml):
+#
+#   template:
+#     - trigger:
+#         - platform: state
+#           entity_id: sensor.nexagwc3_nexa_rx
+#       sensor:
+#         - name: "Nexa Sensor 1 Temperature"
+#           unit_of_measurement: "°C"
+#           device_class: temperature
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x2A0E' %} {{ d.t }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 1 Humidity"
+#           unit_of_measurement: "%"
+#           device_class: humidity
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x2A0E' %} {{ d.h }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 2 Temperature"
+#           unit_of_measurement: "°C"
+#           device_class: temperature
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x220E' %} {{ d.t }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 2 Humidity"
+#           unit_of_measurement: "%"
+#           device_class: humidity
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x220E' %} {{ d.h }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 3 Temperature"
+#           unit_of_measurement: "°C"
+#           device_class: temperature
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x280E' %} {{ d.t }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 3 Humidity"
+#           unit_of_measurement: "%"
+#           device_class: humidity
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x280E' %} {{ d.h }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 4 Temperature"
+#           unit_of_measurement: "°C"
+#           device_class: temperature
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x3A0E' %} {{ d.t }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+#         - name: "Nexa Sensor 4 Humidity"
+#           unit_of_measurement: "%"
+#           device_class: humidity
+#           state_class: measurement
+#           state: >
+#             {% set d = trigger.to_state.state | from_json %}
+#             {% if d.id == '0x3A0E' %} {{ d.h }}
+#             {% else %}               {{ this.state }}
+#             {% endif %}
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Remote receiver – reads demodulated OOK from CC1101 GDO2 (GPIO4)
+#
+# Hideki / NBA-001 timing:
+#   short pulse ≈ 520 µs  (half clock period)
+#   long  pulse ≈ 1040 µs (full clock period)
+#   idle gap    > 4 ms    (between repetitions / sensors)
+# ─────────────────────────────────────────────────────────────────────────────
+remote_receiver:
+  pin:
+    number: GPIO6
+    mode: input
+    allow_other_uses: true  # shared with cc1101 gdo0_pin
+  filter: 100us
+  idle:   5ms
+  buffer_size: 10kb
+  dump: []
+
+  on_raw:
+    - lambda: |-
+        auto pkt = nba001_decode(x);
+        if (!pkt.valid) return;
+        id(nexa_rx).publish_state(nba001_to_json(pkt).c_str());
+
